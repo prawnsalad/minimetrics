@@ -2,6 +2,8 @@
 
 A lightweight statsd server with a built in metrics dashboard.
 
+![image](https://user-images.githubusercontent.com/725880/125639488-037f24ea-f1d2-4a35-a5f4-dd967e04f529.png)
+
 Sometimes you don't need distributed multi-process multi-user redundant metrics, you just need a single app that's quick to use and simple to run in your existing environment.
 
 Instrument and monitor your application during development or live, in real-time. No need to setup a database, user accounts, infrastructure. Everything included and zero-config for the "it just works" feel.
