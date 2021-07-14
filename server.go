@@ -110,6 +110,7 @@ func httpServer(bindStr string, db *sql.DB, metrics chan string) {
 			Type  string `json:"type"`
 		}
 		rows := []Row{}
+		defer rs.Close()
 		for rs.Next() {
 			row := Row{}
 			rs.Scan(
@@ -280,6 +281,7 @@ func queryMetrics(request QueryRequest, db *sql.DB) []QueryResult {
 	}
 
 	res := []QueryResult{}
+	defer rs.Close()
 	for rs.Next() {
 		bin := QueryResult{
 			Tags: make(map[string][]string),
