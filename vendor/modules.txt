@@ -1,0 +1,15 @@
+# github.com/Masterminds/squirrel v1.5.0
+## explicit
+# github.com/doug-martin/goqu/v9 v9.13.0
+## explicit
+github.com/doug-martin/goqu/v9
+github.com/doug-martin/goqu/v9/exec
+github.com/doug-martin/goqu/v9/exp
+github.com/doug-martin/goqu/v9/internal/errors
+github.com/doug-martin/goqu/v9/internal/sb
+github.com/doug-martin/goqu/v9/internal/tag
+github.com/doug-martin/goqu/v9/internal/util
+github.com/doug-martin/goqu/v9/sqlgen
+# github.com/mattn/go-sqlite3 v1.14.7
+## explicit
+github.com/mattn/go-sqlite3

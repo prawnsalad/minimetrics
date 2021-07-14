@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>minimetrics</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.4.1/dist/chart.min.js"></script>
+
+    <style>
+        :root {
+            --june-bud: #c5d86dff;
+            --black-chocolate: #261c15ff;
+            --baby-powder: #f7f7f2ff;
+            --pale-spring-bud: #e4e6c3ff;
+            --flame: #f05d23ff;
+        }
+
+        .pointer {
+            cursor: pointer;
+        }
+        .subtext {
+            opacity: 0.3;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            font-family: Verdana, Geneva, Tahoma, sans-serif;
+            font-size: 14px;
+            color: var(--black-chocolate);
+            background: var(--baby-powder);
+        }
+
+        #app {
+            height: 100vh;
+            display: flex;
+        }
+        aside {
+            width: 250px;
+            border-right: 2px solid #fff;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        main .toolbar {
+            border-bottom: 2px solid #fff;
+            padding: 1em;
+        }
+        main .workspace {
+            flex: 1;
+            padding: 1em;
+        }
+
+        .logo {
+            padding: 20px;
+            text-align: center;
+            font-weight: normal;
+            background: var(--flame);
+            color: var(--baby-powder);
+        }
+
+        .sidebar-resizer {
+            position: absolute;
+            width: 10px;
+            right: -10px;
+            top: 0;
+            bottom: 0;
+            cursor: ew-resize;
+            display: flex;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .sidebar-resizer span {
+            transform: rotate(90deg);
+            margin-left: 11px;
+            opacity: 0.4;
+        }
+        .sidebar-resizer:hover span {
+            opacity: 0.7;
+        }
+
+        .sidebar-toggle {
+            display: inline-block;
+            position: relative;
+            top: 3px;
+            cursor: pointer;
+            margin-right: 0.5em;
+        }
+
+        .sidebar-toggle > svg {
+            height: 1em;
+        }
+
+        .autorefresh-options {
+            display: inline-block;
+            margin-left: 3em;
+        }
+
+        .chart {
+            display: inline-block;
+            position: relative;
+            margin: 0 10px 10px 0;
+            border: 1px solid rgb(38 28 21 / 12%);
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .chart-main {
+            width: 400px; /* same as .chart-topbar width */
+            height: 250px;
+        }
+
+        .chart-topbar {
+            display: flex;
+            padding: 7px 7px 0 7px;
+            width: 400px; /* same as .chart-main width */
+        }
+
+        .chart-title {
+            flex: 1;
+            margin-right: 1em;
+            font-size: 0.9em;
+            overflow-x: hidden;
+            text-overflow: ellipsis;
+
+            /* hack to get the overflow ellipsis on the left and show the last part of the label */
+            direction: rtl;
+            text-align: left;
+        }
+
+        .chart-filter-taglist a {
+            cursor: pointer;
+            color: var(--flame);
+        }
+
+        .labels-list {
+            flex: 1;
+            overflow-y: auto;
+            margin: 0; padding: 0 1em 1em 1em;
+        }
+        .labels-filter {
+            margin-bottom: 20px;
+        }
+        .labels-label {
+            margin: 5px 0;
+            white-space: nowrap;
+        }
+        .labels-label:hover {
+            color: var(--flame);
+        }
+
+        .customselect {
+            position: relative;
+        }
+        .customselect-dropdown {
+            position: absolute;
+            width: 100%;
+            background: var(--baby-powder);
+            max-height: 100px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .customselect-item {
+            cursor: pointer;
+            padding: 3px;
+        }
+        .customselect-item:hover {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <aside v-if="showSidebar">
+            <div class="sidebar-resizer" @mousedown="sidebarResizing=true"><span>.....</span></div>
+            <div style="padding:0 1em;">
+                <h2 class="logo">minimetrics</h2>
+                <h3>Labels</h3>
+                <div class="labels-filter">
+                    <input v-model="labelFilter" /> 🔍
+                </div>
+            </div>
+            <div class="labels-list">
+                <div v-for="label in filteredLabels" class="labels-label">
+                    <a @click.prevent="addChart(label)" class="pointer">
+                        {{label.label}} <span class="subtext">{{label.type}}</span>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <main>
+            <div class="toolbar">
+                <a @click="showSidebar = !showSidebar" class="sidebar-toggle">
+                    <svg-caret-left v-if="showSidebar"></svg-caret-left>
+                    <svg-caret-right v-else></svg-caret-right>
+                </a>
+                <label>
+                    <select v-model="from">
+                        <option value="-1m">Last 1 minute</option>
+                        <option value="-15m">Last 15 minutes</option>
+                        <option value="-30m">Last 30 minutes</option>
+                        <option value="-1h">Last 1 hour</option>
+                        <option value="-3h">Last 3 hours</option>
+                        <option value="-6h">Last 6 hours</option>
+                        <option value="-12h">Last 12 hours</option>
+                        <option value="-24h">Last 24 hours</option>
+                        <option value="-2d">Last 2 days</option>
+                        <option value="-1w">Last 1 week</option>
+                        <option value="-2w">Last 2 weeks</option>
+                        <option value="-1month">Last 1 month</option>
+                    </select>
+                </label>
+                <label>
+                    <select v-model="resolution">
+                        <option value="5s">Group 5 seconds</option>
+                        <option value="10s">Group 10 seconds</option>
+                        <option value="1m">Group 1 minute</option>
+                        <option value="2m">Group 2 minutes</option>
+                        <option value="5m">Group 5 minutes</option>
+                        <option value="30m">Group 30 minutes</option>
+                        <option value="1h">Group 1 hour</option>
+                        <option value="6h">Group 6 hours</option>
+                        <option value="12h">Group 12 hours</option>
+                        <option value="24h">Group 24 hours</option>
+                    </select>
+                </label>
+
+                <div class="autorefresh-options">
+                    <label>
+                        Auto refresh
+                        <input type="checkbox" v-model="autoRefresh" />
+                    </label>
+                    <button @click="updateCharts()">Refresh</button>
+                </div>
+            </div>
+
+            <div class="workspace">
+                <chart v-for="chart in charts" :key="chart.label" :chart-data="chart" @remove=removeChart(chart)></chart>
+            </div>
+        </main>
+    </div>
+
+    <template id="tmpl_chart">
+        <div class="chart">
+            <div class="chart-topbar">
+                <svg-loader :style="{visibility: chartData.loading ? 'visible' : 'hidden'}" style="height: 16px;"></svg-loader>
+                <span class="chart-title" :title="chartData.label">{{chartData.label}}</span>
+
+                <div>
+                    <button @click="showFilter=!showFilter">{{showFilter?'Chart':'Filters'}}</button>
+                    <select v-model="chartData.metric">
+                        <option value="count">Count</option>
+                        <option value="sum">Sum</option>
+                        <option value="max">Max</option>
+                        <option value="min">Min</option>
+                        <option value="avg">Avg</option>
+                    </select>
+                    <a @click="$emit('remove')" class="pointer" style="padding: 0 5px;">x</a>
+                </div>
+            </div>
+
+            <div class="chart-main">
+                <div :style="{display: showFilter ? 'block' : 'none'}" style="padding:20px 10px;">
+                    <div v-if="orderedTags.length > 0" class="chart-filter-taglist">
+                        Filter on an existing tag:
+                        <template v-for="(tag, idx) in orderedTags">
+                            <a @click="addFilter(tag, '')">{{tag}}</a>{{idx < orderedTags.length-1 ? ', ' : ' '}}
+                        </template>
+                    </div>
+                    <div v-else>
+                        No tags were found for this metric.
+                    </div>
+
+                    <table style="margin-top:10px;">
+                        <tr v-for="(filter, idx) in chartData.filters">
+                            <td><select-input v-model="filter.tag" :items="Object.keys(tags || {})"></select-input></td>
+                            <td><select-input v-model="filter.value" :items="tags[filter.tag] || []"></select-input></td>
+                            <td><a @click="chartData.filters.splice(idx, 1)" class="pointer" style="padding:0 5px;">x</a></td>
+                        </tr>
+                        <tr>
+                            <td colspan=3>
+                                <button @click="addFilter()">Add filter</button>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <canvas :style="{display: showFilter ? 'none' : 'block'}" ref="canvas" width="400" height="250"></canvas>
+            </div>
+        </div>
+    </template>
+
+    <template id="tmpl_customselect">
+        <div class="customselect">
+            <input ref="input" type="text" :value="value" @input="input" @focus="focus()" @blur="open=false" />
+            <div v-if="open" class="customselect-dropdown">
+                <div v-for="i in filteredItems" @mousedown="setItem(i)" class="customselect-item">{{i}}</div>
+            </div>
+        </div>
+    </template>
+<script>
+
+Vue.component('svg-loader', {
+    template: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: inline-block;" width="24px" height="24px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
+        <circle cx="50" cy="50" r="40" stroke-width="7" stroke="#261c15" stroke-dasharray="62.83185307179586 62.83185307179586" fill="none" stroke-linecap="round">
+        <animateTransform attributeName="transform" type="rotate" repeatCount="indefinite" dur="1s" keyTimes="0;1" values="0 50 50;360 50 50"></animateTransform>
+        </circle>
+    </svg>`,
+});
+
+Vue.component('svg-caret-left', {
+    template: `<svg viewBox="0 0 492.004 492.004">
+        <path d="M198.608,246.104L382.664,62.04c5.068-5.056,7.856-11.816,7.856-19.024c0-7.212-2.788-13.968-7.856-19.032l-16.128-16.12
+            C361.476,2.792,354.712,0,347.504,0s-13.964,2.792-19.028,7.864L109.328,227.008c-5.084,5.08-7.868,11.868-7.848,19.084
+            c-0.02,7.248,2.76,14.028,7.848,19.112l218.944,218.932c5.064,5.072,11.82,7.864,19.032,7.864c7.208,0,13.964-2.792,19.032-7.864
+            l16.124-16.12c10.492-10.492,10.492-27.572,0-38.06L198.608,246.104z"/>
+    </svg>`,
+});
+
+Vue.component('svg-caret-right', {
+    template: `<svg viewBox="0 0 492 492">
+        <path d="M382.678,226.804L163.73,7.86C158.666,2.792,151.906,0,144.698,0s-13.968,2.792-19.032,7.86l-16.124,16.12
+            c-10.492,10.504-10.492,27.576,0,38.064L293.398,245.9l-184.06,184.06c-5.064,5.068-7.86,11.824-7.86,19.028
+            c0,7.212,2.796,13.968,7.86,19.04l16.124,16.116c5.068,5.068,11.824,7.86,19.032,7.86s13.968-2.792,19.032-7.86L382.678,265
+            c5.076-5.084,7.864-11.872,7.848-19.088C390.542,238.668,387.754,231.884,382.678,226.804z"/>
+    </svg>`,
+});
+
+Vue.component('select-input', {
+    template: '#tmpl_customselect',
+    props: ['value', 'items'],
+    data: function() {
+        return {
+            open: false,
+            isCustom: true,
+        };
+    },
+    computed: {
+        filteredItems() {
+            // custom = typing a custom entry. !custom = slected item from the list
+            if (this.isCustom) {
+                return this.items.filter(i => i.toLowerCase().includes(this.value.toLowerCase()));
+            }
+
+            return this.items;
+        },
+    },
+    methods: {
+        focus() {
+            this.isCustom = false;
+            this.open = true;
+        },
+        input(event) {
+            this.isCustom = true;
+            this.$emit('input', event.target.value);
+        },
+        setItem(item) {
+            this.isCustom = false;
+            this.$emit('input', item);
+            this.value = item;
+        }
+    },
+});
+
+const ComponentChart = Vue.extend({
+    template: '#tmpl_chart',
+    props: ['chartData'],
+    data: function() {
+        return {
+            showFilter: false,
+            knownTags: {},
+        };
+    },
+    computed: {
+        tags() {
+            return this.knownTags;
+            // return this.chartData.tags;
+        },
+        orderedTags() {
+            return Object.keys(this.knownTags).sort();
+        },
+    },
+    mounted() {
+        let ctx = this.$refs.canvas.getContext('2d');
+        this.chart = new Chart(ctx, {
+            type: 'line',
+            data: this.chartData.data,
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                elements: {
+                    point: {
+                        radius: 0,
+                        // hitRadius: 1,
+                    },
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                        position: 'top',
+                        align: 'start',
+                        labels: {
+                            usePointStyle: true,
+                        },
+                    },
+                },
+                animation: {
+                    duration: 0,
+                },
+                transitions: {
+                    active: {
+                        animation: {
+                            duration: 100,
+                        }
+                    },
+                },
+            }
+        });
+
+        this.renderData();
+    },
+    beforeDestroy() {
+        if (this.chart) this.chart.destroy();
+    },
+    watch: {
+        'chartData.queryData': {
+            deep: true,
+            handler() {
+                this.chart.data = this.chartData.data;
+                this.renderData();
+            },
+        },
+        'chartData.metric'() {
+            this.renderData();
+        },
+        'chartData.tags'() {
+            // tags are {tagName: [val, val1, valNm ]}
+            // Merge the tags with our current tags. When filtering the timeline may
+            // become empty which means no tags found, and we want a record of any tags
+            // that we have seen before
+
+            let knownTags = this.knownTags;
+            for (let tagName in this.chartData.tags) {
+                knownTags[tagName] = knownTags[tagName] || [];
+                let knownTag = knownTags[tagName];
+
+                let newTagVals = this.chartData.tags[tagName];
+                newTagVals.forEach(val => {
+                    if (!knownTag.includes(val)) {
+                        knownTag.push(val);
+                    }
+                });
+            }
+
+            // Any new tags above wouldn't have triggered vues reactivity as they are new, so force
+            // an update by re-setting the whole tags object
+            this.$set(this, 'knownTags', {...knownTags})
+        },
+    },
+    methods: {
+        addFilter(tag='', value='') {
+            this.chartData.filters.push({
+                tag,
+                value,
+            });
+        },
+        renderData() {
+            let chartData = this.chartData;
+            let data = {
+                datasets: [{
+                    label: chartData.label,
+                    data: [],
+                    borderColor: '#f05d23ff',
+                    borderWidth: 2
+                }],
+            };
+
+            if (chartData.queryData) {
+                let points = chartData.queryData.points;
+                data.labels = points.map(point => point.time.split(' ')[1]);
+                data.datasets[0].data = points.map(point => point[chartData.metric]);
+            }
+
+            this.chart.data = data;
+            this.chart.update();
+        },
+    },
+});
+
+window.app = new Vue({
+    el: '#app',
+    components: {
+        Chart: ComponentChart,
+    },
+    data: function() {
+        return {
+            showSidebar: true,
+            sidebarResizing: false,
+            resolution: '1m',
+            from: '-15m',
+            to: 'now',
+            autoRefresh: true,
+            labelsLastFetch: 0,
+            labels: [], // {label:'', type:'c'} type=statsd metric type
+            labelFilter: '',
+            charts: [],
+        };
+    },
+    computed: {
+        filteredLabels() {
+            if (!this.labelFilter.trim()) {
+                return this.labels;
+            }
+
+            return this.labels.filter(l => l.label.includes(this.labelFilter));
+        },
+    },
+    created() {
+        this.addChart('minimetrics_query').then(chart => chart.metric = 'count');
+        this.refreshLabels();
+        this.autoRefreshLoop();
+        this.applyResizeListeners();
+    },
+    methods: {
+        applyResizeListeners() {
+            document.addEventListener('mouseup', () => {
+                document.body.style.userSelect = 'unset'
+                this.sidebarResizing = false;
+            });
+            document.addEventListener('mousemove', (event) => {
+                if (this.sidebarResizing) {
+                    document.body.style.userSelect = 'none'
+                    this.$el.querySelector('aside').style.width = event.clientX + 'px';
+                }
+            });
+        },
+        autoRefreshLoop() {
+            if (this.autoRefresh) {
+                this.updateCharts();
+
+                // Labels don't need refreshing as much as charts
+                if (Date.now() - this.labelsLastFetch > 10000) {
+                    this.refreshLabels();
+                }
+            }
+
+            setTimeout(() => {
+                this.autoRefreshLoop();
+            }, 5000);
+        },
+        async refreshLabels() {
+            this.labelsLastFetch = Date.now();
+            let res = await fetch('/data/labels');
+            let data = await res.json();
+            this.labels = data;
+        },
+        async addChart(label) {
+            // support both {label:'name', type:'c'} and 'name' formats
+            if (typeof label === 'string') {
+                label = {
+                    label,
+                    type: 'c',
+                };
+            }
+
+            let metricTypes = {
+                // statsd_type: 'metric[property]',
+                ms: 'avg', //timers
+                s: 'count', // sets
+                c: 'sum', // counters
+                g: 'max', // gauge
+            };
+            let chart = {
+                label: label.label,
+                metric: metricTypes[label.type] || 'sum',
+                data: {},
+                tags: [], // statsd tags found in this query
+                filters: [],
+                queryData: null,
+                loading: false,
+                update: () => {
+                    this.updateCharts(chart);
+                },
+            };
+            this.charts.push(chart);
+            chart.update();
+            return chart;
+        },
+        removeChart(chart) {
+            this.charts = this.charts.filter(c => c !== chart);
+        },
+        async updateCharts(charts) {
+            if (!charts) {
+                charts = this.charts;
+            } else if (!Array.isArray(charts)) {
+                charts = [charts];
+            }
+
+            charts.forEach(async chart => {
+                chart.loading = true;
+
+                let resolution = intervalString(this.resolution);
+                let from = Date.now() + intervalString(this.from);
+                let url = `/data/query/?label=${chart.label}&group=${resolution}&from=${from}`;
+                chart.filters.forEach(tag => {
+                    if (tag.tag.trim() && tag.value.trim()) {
+                        url += `&tag_${tag.tag}=${tag.value}`;
+                    }
+                });
+
+                let res = await fetch(url);
+                let query = await res.json();
+
+                chart.queryData = query;
+                chart.tags = query.tags;
+
+                chart.loading = false;
+            });
+        },
+    },
+});
+window.app.$mount();
+
+
+
+
+
+
+
+function intervalString(str='', format='ms') {
+    // based from https://github.com/jkroso/parse-duration/blob/master/index.js
+
+    let durationRE = /(-?(?:\d+\.?\d*|\d*\.?\d+)(?:e[-+]?\d+)?)\s*([\p{L}]*)/uig
+
+    let units = {};
+    units.nanosecond =
+    units.ns = 1 / 1e6;
+
+    units['µs'] =
+    units['μs'] =
+    units.us =
+    units.microsecond = 1 / 1e3;
+
+    units.millisecond =
+    units.ms =
+    units[''] = 1;
+
+    units.second =
+    units.sec =
+    units.s = units.ms * 1000;
+
+    units.minute =
+    units.min =
+    units.m = units.s * 60;
+
+    units.hour =
+    units.hr =
+    units.h = units.m * 60;
+
+    units.day =
+    units.d = units.h * 24;
+
+    units.week =
+    units.wk =
+    units.w = units.d * 7;
+
+    units.month =
+    units.b =
+    units.d * (365.25 / 12);
+
+    units.year =
+    units.yr =
+    units.y = units.d * 365.25;
+
+    function parse(str='', format='ms'){
+        let result = null
+        // ignore commas/placeholders
+        str = (str+'').replace(/(\d)[,_](\d)/g, '$1$2')
+        str.replace(durationRE, function(_, n, units){
+            units = unitRatio(units)
+            if (units) result = (result || 0) + parseFloat(n, 10) * units
+        })
+
+        return result && (result / (unitRatio(format) || 1))
+    }
+
+    function unitRatio(str) {
+        return units[str] || units[str.toLowerCase().replace(/s$/, '')]
+    }
+
+    return parse(str, format);
+}
+
+
+</script>
+</body>
+</html>
