@@ -22,7 +22,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var logLevel = 3
+var logLevel = 2
 var logError = 1
 var logInfo = 2
 var logDebug = 3
