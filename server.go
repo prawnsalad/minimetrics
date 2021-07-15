@@ -15,13 +15,26 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	goqu "github.com/doug-martin/goqu/v9"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var logLevel = 1
+var logLevel = 3
+var logError = 1
+var logInfo = 2
+var logDebug = 3
+var logTrace = 4
+
+var dbLock *sync.RWMutex
+
+func out(level int, args ...interface{}) {
+	if level <= logLevel {
+		log.Println(args...)
+	}
+}
 
 func main() {
 	httpBind := "0.0.0.0:8070"
@@ -88,36 +101,35 @@ func getPublicFs() (http.FileSystem, bool) {
 func httpServer(bindStr string, db *sql.DB, metrics chan string) {
 	fs, isOs := getPublicFs()
 	if isOs {
-		log.Println("Serving public/ for public HTTP")
+		out(logInfo, "Serving public/ for public HTTP")
 	}
 	http.Handle("/", http.FileServer(fs))
 
 	http.HandleFunc("/data/labels", func(w http.ResponseWriter, req *http.Request) {
+		dbLock.RLock()
 		queryStart := time.Now()
-		rs, err := db.Query("SELECT DISTINCT label, type from counters")
+		rs, err := db.Query("SELECT label, type from labels")
 		queryMs := time.Since(queryStart).Milliseconds()
+		dbLock.RUnlock()
 
 		if err != nil {
-			log.Println("Error reading labels:", err.Error())
+			out(logError, "Error reading labels:", err.Error())
 			w.WriteHeader(503)
 			return
 		}
-
-		metrics <- "minimetrics_query,type=labels:" + fmt.Sprint(queryMs) + "|ms"
 
 		type Row struct {
 			Label string `json:"label"`
 			Type  string `json:"type"`
 		}
-		rows := []Row{}
 		defer rs.Close()
+		rows := []Row{}
 		for rs.Next() {
 			row := Row{}
 			rs.Scan(
 				&row.Label,
 				&row.Type,
 			)
-
 			rows = append(rows, row)
 		}
 
@@ -125,6 +137,8 @@ func httpServer(bindStr string, db *sql.DB, metrics chan string) {
 
 		w.Header().Add("Content-Type", "application/json")
 		fmt.Fprintf(w, string(jsonBlob))
+
+		metrics <- "minimetrics_query,type=labels:" + fmt.Sprint(queryMs) + "|ms"
 	})
 
 	http.HandleFunc("/data/query/", func(w http.ResponseWriter, req *http.Request) {
@@ -203,7 +217,7 @@ func httpServer(bindStr string, db *sql.DB, metrics chan string) {
 		fmt.Fprintf(w, string(resultJsonBlob))
 	})
 
-	log.Println("Web server listening", bindStr)
+	out(logInfo, "Web server listening", bindStr)
 	http.ListenAndServe(bindStr, nil)
 }
 
@@ -275,6 +289,9 @@ func queryMetrics(request QueryRequest, db *sql.DB) []QueryResult {
 	ORDER BY bin
 	`
 
+	dbLock.RLock()
+	defer dbLock.RUnlock()
+
 	rs, err := db.Query(q, sql.Named("groupBySec", request.GroupBySec))
 	if err != nil {
 		log.Fatal("Metrics query error: " + err.Error())
@@ -299,7 +316,7 @@ func queryMetrics(request QueryRequest, db *sql.DB) []QueryResult {
 			&rawTags,
 		)
 		if err != nil {
-			log.Println("Error reading metrics data:", err.Error())
+			out(logError, "Error reading metrics data:", err.Error())
 			return []QueryResult{}
 		}
 
@@ -312,7 +329,7 @@ func queryMetrics(request QueryRequest, db *sql.DB) []QueryResult {
 			tags := make(map[string]string)
 			err := json.Unmarshal([]byte(jsonLine), &tags)
 			if err != nil {
-				log.Println("Error parsing tag data from database:", err.Error())
+				out(logError, "Error parsing tag data from database:", err.Error())
 				continue
 			}
 
@@ -340,7 +357,7 @@ func udpServerRunner(bindStr string, metrics chan string) {
 	}
 
 	defer conn.Close()
-	log.Println("Statsd server listening", conn.LocalAddr().String())
+	out(logInfo, "Statsd server listening", conn.LocalAddr().String())
 
 	receiving := false
 	for {
@@ -351,14 +368,12 @@ func udpServerRunner(bindStr string, metrics chan string) {
 		}
 
 		if !receiving {
-			log.Println("Receiving statsd data confirmed")
+			out(logInfo, "Receiving statsd data confirmed")
 			receiving = true
 		}
 
 		data := strings.TrimSpace(string(message[:rlen]))
-		if logLevel >= 2 {
-			fmt.Printf("Received: %s from %s\n", data, remote)
-		}
+		out(logTrace, "Received: %s from %s\n", data, remote)
 		metrics <- data
 	}
 }
@@ -368,12 +383,12 @@ func initDb(dbFilename string) *sql.DB {
 		dbFilename = ":memory:"
 	}
 
-	db, err := sql.Open("sqlite3", dbFilename)
+	db, err := sql.Open("sqlite3", dbFilename+"?cache=shared&_busy_timeout=30000")
 	if err != nil {
 		log.Fatal("Error opening database:", err.Error())
 	}
 
-	// Wwe can safely ignore these errors as they may already exist
+	db.Exec("PRAGMA busy_timeout = 30000")
 	db.Exec(`CREATE TABLE IF NOT EXISTS counters (
 		ts integer,
 		label text,
@@ -382,27 +397,82 @@ func initDb(dbFilename string) *sql.DB {
 		val integer
 	)`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_counters_label_ts ON counters (label, ts)`)
+	db.Exec(`create index if not exists idx_counters_label_type on counters (label, type);`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS labels (
+		label text,
+		type text
+	)`)
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_labels_label_type ON labels (label, type)`)
+	db.Exec(`CREATE TRIGGER IF NOT EXISTS create_label_tbl INSERT ON counters 
+	BEGIN
+	  INSERT OR IGNORE into labels (label, type) VALUES (new.label, new.type);
+	END;
+	`)
 
+	dbLock = &sync.RWMutex{}
 	return db
 }
 
 func metricsWriter(db *sql.DB) chan string {
 	in := make(chan string)
 	go func() {
-		stmt, err := db.Prepare("INSERT INTO counters(ts, label, type, tags, val) VALUES(?,?,?,?,?)")
-		if err != nil {
-			log.Fatal("Error preparing database queries:", err.Error())
-		}
+		inserted := 0
+		lastReported := time.Now()
+		lastInserted := time.Now()
+		insertBuf := []interface{}{}
+		insertBufRows := 0
+		maxInsertSize := 5000
 
 		for {
 			line := <-in
 			metric, isOk := parseStatsdLine(line)
-			if isOk {
-				tagsBlob, _ := json.Marshal(metric.Tags)
-				_, err := stmt.Exec(time.Now().Unix(), metric.Label, metric.Type, string(tagsBlob), metric.Value)
-				if err != nil {
-					log.Println("Error saving metric:", err.Error())
+			if !isOk {
+				out(logError, "Unable to parse incoming statsd data: "+line)
+				continue
+			}
+
+			// Insert the insert values into the buffer ready to be inserted in batch
+			tagsBlob, _ := json.Marshal(metric.Tags)
+			insertBuf = append(
+				insertBuf,
+				time.Now().Unix(), metric.Label, metric.Type, string(tagsBlob), metric.Value,
+			)
+			insertBufRows++
+
+			// After 100ms, isnert everything we have in the batch
+			if (insertBufRows > 0 && time.Now().Add(time.Millisecond*-100).UnixNano() > lastInserted.UnixNano()) || insertBufRows >= maxInsertSize {
+				if insertBufRows >= maxInsertSize {
+					out(logError, "Metrics write buffer filled. Possibly receiving too much too fast")
 				}
+
+				sql := "INSERT INTO counters(ts, label, type, tags, val) VALUES "
+				for i := 0; i < insertBufRows; i++ {
+					sql += "(?, ?, ?, ?, ?)"
+					if i < insertBufRows-1 {
+						sql += ", "
+					}
+				}
+
+				//print("lock..")
+				//dbLock.Lock()
+				_, err := db.Exec(sql, insertBuf...)
+				//dbLock.Unlock()
+				//print(" unlocked.\n")
+				if err != nil {
+					out(logError, "Error saving metric:", err.Error())
+				}
+
+				lastInserted = time.Now()
+				inserted += insertBufRows
+				insertBuf = []interface{}{}
+				insertBufRows = 0
+			}
+
+			// Report every 5 seconds
+			if time.Now().Add(time.Second*-5).Unix() > lastReported.Unix() {
+				out(logDebug, int(inserted/5), "metric inserts /sec")
+				lastReported = time.Now()
+				inserted = 0
 			}
 		}
 	}()
