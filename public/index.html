@@ -548,13 +548,13 @@ window.app = new Vue({
                 }
             });
         },
-        autoRefreshLoop() {
+        async autoRefreshLoop() {
             if (this.autoRefresh) {
-                this.updateCharts();
+                await this.updateCharts();
 
                 // Labels don't need refreshing as much as charts
                 if (Date.now() - this.labelsLastFetch > 10000) {
-                    this.refreshLabels();
+                    await this.refreshLabels();
                 }
             }
 
@@ -564,9 +564,14 @@ window.app = new Vue({
         },
         async refreshLabels() {
             this.labelsLastFetch = Date.now();
-            let res = await fetch('/data/labels');
-            let data = await res.json();
-            this.labels = data;
+
+            try {
+                let res = await fetch('/data/labels');
+                let data = await res.json();
+                this.labels = data;
+            } catch (err) {
+                return;
+            }
         },
         async addChart(label) {
             // support both {label:'name', type:'c'} and 'name' formats
@@ -592,9 +597,7 @@ window.app = new Vue({
                 filters: [],
                 queryData: null,
                 loading: false,
-                update: () => {
-                    this.updateCharts(chart);
-                },
+                update: () => this.updateCharts(chart),
             };
             this.charts.push(chart);
             chart.update();
@@ -610,7 +613,7 @@ window.app = new Vue({
                 charts = [charts];
             }
 
-            charts.forEach(async chart => {
+            let proms = charts.map(async chart => {
                 chart.loading = true;
 
                 let resolution = intervalString(this.resolution);
@@ -622,14 +625,23 @@ window.app = new Vue({
                     }
                 });
 
-                let res = await fetch(url);
-                let query = await res.json();
+                let res = null;
+                let query = null;
+
+                try {
+                    res = await fetch(url);
+                    query = await res.json();
+                } catch (err) {
+                    return;
+                }
 
                 chart.queryData = query;
                 chart.tags = query.tags;
 
                 chart.loading = false;
             });
+
+            await Promise.all(proms);
         },
     },
 });
