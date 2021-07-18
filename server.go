@@ -276,7 +276,7 @@ func queryMetrics(request QueryRequest, db *sql.DB) []QueryResult {
 	)
 	SELECT
 		bin,
-		datetime(time, 'unixepoch') as time,
+		strftime('%Y-%m-%dT%H:%M:%SZ', time, 'unixepoch') as time,
 		COALESCE(sum(data.val), 0) as sum,
 		COALESCE(count(data.val), 0) as count,
 		COALESCE(avg(data.val), 0) as avg,

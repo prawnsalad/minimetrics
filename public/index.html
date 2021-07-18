@@ -506,7 +506,7 @@ const ComponentChart = Vue.extend({
             if (chartData.queryData) {
                 let points = chartData.queryData.points;
                 data.datasets[0].data = points.map(point => ({
-                    x: point.time + 'Z', // we get the format 'yyyy-mm-dd hh:mm:ss' so add the Z for UTC
+                    x: point.time,
                     y: point[chartData.metric],
                 }));
             }
