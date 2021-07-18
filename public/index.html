@@ -526,11 +526,9 @@ window.app = new Vue({
     },
     computed: {
         filteredLabels() {
-            if (!this.labelFilter.trim()) {
-                return this.labels;
-            }
-
-            return this.labels.filter(l => l.label.includes(this.labelFilter));
+            return this.labels
+                .filter(l => l.label.includes(this.labelFilter))
+                .sort((a, b) => a.label.localeCompare(b.label));
         },
     },
     created() {
