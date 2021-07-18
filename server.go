@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	goqu "github.com/doug-martin/goqu/v9"
@@ -359,6 +360,15 @@ func udpServerRunner(bindStr string, metrics chan string) {
 	defer conn.Close()
 	out(logInfo, "Statsd server listening", conn.LocalAddr().String())
 
+	var linesRecieved int64
+	go func() {
+		for {
+			time.Sleep(time.Second * 5)
+			metrics <- fmt.Sprintf("minimetrics_input:%d|c", linesRecieved)
+			atomic.StoreInt64(&linesRecieved, 0)
+		}
+	}()
+
 	receiving := false
 	for {
 		message := make([]byte, 512)
@@ -374,6 +384,7 @@ func udpServerRunner(bindStr string, metrics chan string) {
 
 		data := strings.TrimSpace(string(message[:rlen]))
 		out(logTrace, "Received: %s from %s\n", data, remote)
+		atomic.AddInt64(&linesRecieved, 1)
 		metrics <- data
 	}
 }
@@ -442,7 +453,7 @@ func metricsWriter(db *sql.DB) chan string {
 			// After 100ms, isnert everything we have in the batch
 			if (insertBufRows > 0 && time.Now().Add(time.Millisecond*-100).UnixNano() > lastInserted.UnixNano()) || insertBufRows >= maxInsertSize {
 				if insertBufRows >= maxInsertSize {
-					out(logError, "Metrics write buffer filled. Possibly receiving too much too fast")
+					out(logError, "Metrics write buffer filled. Possibly receiving too many metrics")
 				}
 
 				sql := "INSERT INTO counters(ts, label, type, tags, val) VALUES "
