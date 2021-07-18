@@ -401,7 +401,19 @@ const ComponentChart = Vue.extend({
                         type: 'time',
                     },
                     y: {
-                        beginAtZero: true
+                        beginAtZero: true,
+                        ticks: {
+                            callback: (value, index, values) => {
+                                let val = value.toLocaleString();
+                                if (this.chartData.metricType === 'ms') {
+                                    return this.chartData.metric === 'count' ?
+                                        val :
+                                        val + 'ms';
+                                }
+
+                                return val;
+                            }
+                        }
                     }
                 },
                 elements: {
@@ -532,7 +544,7 @@ window.app = new Vue({
         },
     },
     created() {
-        this.addChart('minimetrics_query').then(chart => chart.metric = 'count');
+        this.addChart({label: 'minimetrics_query', type: 'ms'}).then(chart => chart.metric = 'count');
         this.refreshLabels();
         this.autoRefreshLoop();
         this.applyResizeListeners();
@@ -595,6 +607,7 @@ window.app = new Vue({
             };
             let chart = {
                 label: label.label,
+                metricType: label.type,
                 metric: metricTypes[label.type] || 'sum',
                 data: {},
                 tags: [], // statsd tags found in this query
