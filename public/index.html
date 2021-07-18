@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.4.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
     <style>
         :root {
@@ -384,7 +385,6 @@ const ComponentChart = Vue.extend({
     computed: {
         tags() {
             return this.knownTags;
-            // return this.chartData.tags;
         },
         orderedTags() {
             return Object.keys(this.knownTags).sort();
@@ -398,6 +398,9 @@ const ComponentChart = Vue.extend({
             options: {
                 responsive: true,
                 scales: {
+                    x: {
+                        type: 'time',
+                    },
                     y: {
                         beginAtZero: true
                     }
@@ -491,8 +494,10 @@ const ComponentChart = Vue.extend({
 
             if (chartData.queryData) {
                 let points = chartData.queryData.points;
-                data.labels = points.map(point => point.time.split(' ')[1]);
-                data.datasets[0].data = points.map(point => point[chartData.metric]);
+                data.datasets[0].data = points.map(point => ({
+                    x: point.time + 'Z', // we get the format 'yyyy-mm-dd hh:mm:ss' so add the Z for UTC
+                    y: point[chartData.metric],
+                }));
             }
 
             this.chart.data = data;
@@ -537,6 +542,8 @@ window.app = new Vue({
     },
     methods: {
         applyResizeListeners() {
+            // This component is only mounted once so we can get away with cleanliness and not have
+            // to remove event listeners
             document.addEventListener('mouseup', () => {
                 document.body.style.userSelect = 'unset'
                 this.sidebarResizing = false;
