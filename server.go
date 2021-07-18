@@ -435,7 +435,7 @@ func metricsWriter(db *sql.DB) chan string {
 			tagsBlob, _ := json.Marshal(metric.Tags)
 			insertBuf = append(
 				insertBuf,
-				time.Now().Unix(), metric.Label, metric.Type, string(tagsBlob), metric.Value,
+				metric.Timestamp.Unix(), metric.Label, metric.Type, string(tagsBlob), metric.Value,
 			)
 			insertBufRows++
 
@@ -453,11 +453,7 @@ func metricsWriter(db *sql.DB) chan string {
 					}
 				}
 
-				//print("lock..")
-				//dbLock.Lock()
 				_, err := db.Exec(sql, insertBuf...)
-				//dbLock.Unlock()
-				//print(" unlocked.\n")
 				if err != nil {
 					out(logError, "Error saving metric:", err.Error())
 				}
@@ -481,13 +477,14 @@ func metricsWriter(db *sql.DB) chan string {
 }
 
 type Metric struct {
-	Label string
-	Type  string
-	Value int
-	Tags  map[string]string
+	Timestamp time.Time
+	Label     string
+	Type      string
+	Value     int
+	Tags      map[string]string
 }
 
-var reStatsd = regexp.MustCompile(`(?i)^(?P<label>[a-z0-9_\-.]+)(,(?P<tags>[^:\|]*))?(:(?P<value>-?\d+))?(\|(?P<type>[a-z]+))?$`)
+var reStatsd = regexp.MustCompile(`(?i)^(@(?P<timestamp>[^/]*)/)?(?P<label>[a-z0-9_\-.]+)(,(?P<tags>[^:\|]*))?(:(?P<value>-?\d+))?(\|(?P<type>[a-z]+))?$`)
 
 func parseStatsdLine(line string) (Metric, bool) {
 	groups := make(map[string]string)
@@ -508,6 +505,7 @@ func parseStatsdLine(line string) (Metric, bool) {
 	}
 
 	m := Metric{}
+	m.Timestamp = time.Now()
 	m.Label = groups["label"]
 	m.Type = groups["type"]
 	m.Value, _ = strconv.Atoi(groups["value"])
@@ -517,6 +515,14 @@ func parseStatsdLine(line string) (Metric, bool) {
 		tag := strings.SplitN(rawTag, "=", 2)
 		if len(tag) == 2 {
 			m.Tags[tag[0]] = tag[1]
+		}
+	}
+
+	_, ok := groups["timestamp"]
+	if ok {
+		t, err := time.Parse(time.RFC3339, groups["timestamp"])
+		if err == nil {
+			m.Timestamp = t
 		}
 	}
 
