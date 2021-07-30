@@ -251,276 +251,60 @@
         </main>
     </div>
 
-    <template id="tmpl_chart">
-        <div class="chart">
-            <div class="chart-topbar">
-                <svg-loader :style="{visibility: chartData.loading ? 'visible' : 'hidden'}" style="height: 16px;"></svg-loader>
-                <span class="chart-title" :title="chartData.label">{{chartData.label}}</span>
 
-                <div>
-                    <button @click="showFilter=!showFilter">{{showFilter?'Chart':'Filters'}}</button>
-                    <select v-model="chartData.metric">
-                        <option value="count">Count</option>
-                        <option value="sum">Sum</option>
-                        <option value="max">Max</option>
-                        <option value="min">Min</option>
-                        <option value="avg">Avg</option>
-                    </select>
-                    <a @click="$emit('remove')" class="pointer" style="padding: 0 5px;">x</a>
-                </div>
-            </div>
-
-            <div class="chart-main">
-                <div :style="{display: showFilter ? 'block' : 'none'}" style="padding:20px 10px;">
-                    <div v-if="orderedTags.length > 0" class="chart-filter-taglist">
-                        Filter on an existing tag:
-                        <template v-for="(tag, idx) in orderedTags">
-                            <a @click="addFilter(tag, '')">{{tag}}</a>{{idx < orderedTags.length-1 ? ', ' : ' '}}
-                        </template>
-                    </div>
-                    <div v-else>
-                        No tags were found for this metric.
-                    </div>
-
-                    <table style="margin-top:10px;">
-                        <tr v-for="(filter, idx) in chartData.filters">
-                            <td><select-input v-model="filter.tag" :items="Object.keys(tags || {})"></select-input></td>
-                            <td><select-input v-model="filter.value" :items="tags[filter.tag] || []"></select-input></td>
-                            <td><a @click="chartData.filters.splice(idx, 1)" class="pointer" style="padding:0 5px;">x</a></td>
-                        </tr>
-                        <tr>
-                            <td colspan=3>
-                                <button @click="addFilter()">Add filter</button>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                <canvas :style="{display: showFilter ? 'none' : 'block'}" ref="canvas" width="400" height="250"></canvas>
-            </div>
-        </div>
-    </template>
-
-    <template id="tmpl_customselect">
-        <div class="customselect">
-            <input ref="input" type="text" :value="value" @input="input" @focus="focus()" @blur="open=false" />
-            <div v-if="open" class="customselect-dropdown">
-                <div v-for="i in filteredItems" @mousedown="setItem(i)" class="customselect-item">{{i}}</div>
-            </div>
-        </div>
-    </template>
+    <script type="text/include" src="c_svgs.html"></script>
+    <script type="text/include" src="c_selectinput.html"></script>
+    <script type="text/include" src="c_chart.html"></script>
 <script>
 
-Vue.component('svg-loader', {
-    template: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: inline-block;" width="24px" height="24px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
-        <circle cx="50" cy="50" r="40" stroke-width="7" stroke="#261c15" stroke-dasharray="62.83185307179586 62.83185307179586" fill="none" stroke-linecap="round">
-        <animateTransform attributeName="transform" type="rotate" repeatCount="indefinite" dur="1s" keyTimes="0;1" values="0 50 50;360 50 50"></animateTransform>
-        </circle>
-    </svg>`,
-});
 
-Vue.component('svg-caret-left', {
-    template: `<svg viewBox="0 0 492.004 492.004">
-        <path d="M198.608,246.104L382.664,62.04c5.068-5.056,7.856-11.816,7.856-19.024c0-7.212-2.788-13.968-7.856-19.032l-16.128-16.12
-            C361.476,2.792,354.712,0,347.504,0s-13.964,2.792-19.028,7.864L109.328,227.008c-5.084,5.08-7.868,11.868-7.848,19.084
-            c-0.02,7.248,2.76,14.028,7.848,19.112l218.944,218.932c5.064,5.072,11.82,7.864,19.032,7.864c7.208,0,13.964-2.792,19.032-7.864
-            l16.124-16.12c10.492-10.492,10.492-27.572,0-38.06L198.608,246.104z"/>
-    </svg>`,
-});
+let callIncludesPromise = null;
+function callIncludes() {
+    if (callIncludesPromise) {
+        return callIncludesPromise;
+    }
 
-Vue.component('svg-caret-right', {
-    template: `<svg viewBox="0 0 492 492">
-        <path d="M382.678,226.804L163.73,7.86C158.666,2.792,151.906,0,144.698,0s-13.968,2.792-19.032,7.86l-16.124,16.12
-            c-10.492,10.504-10.492,27.576,0,38.064L293.398,245.9l-184.06,184.06c-5.064,5.068-7.86,11.824-7.86,19.028
-            c0,7.212,2.796,13.968,7.86,19.04l16.124,16.116c5.068,5.068,11.824,7.86,19.032,7.86s13.968-2.792,19.032-7.86L382.678,265
-            c5.076-5.084,7.864-11.872,7.848-19.088C390.542,238.668,387.754,231.884,382.678,226.804z"/>
-    </svg>`,
-});
+    let tags = document.querySelectorAll('script[type="text/include"]');
+    let proms = [...tags].map(tag => {
+        return fetch(tag.attributes.src.value).then(r => r.text()).then(text => ({tag, text}));
+    });
 
-Vue.component('select-input', {
-    template: '#tmpl_customselect',
-    props: ['value', 'items'],
-    data: function() {
-        return {
-            open: false,
-            isCustom: true,
-        };
-    },
-    computed: {
-        filteredItems() {
-            // custom = typing a custom entry. !custom = slected item from the list
-            if (this.isCustom) {
-                return this.items.filter(i => i.toLowerCase().includes(this.value.toLowerCase()));
-            }
+    callIncludesPromise = Promise.all(proms).then(tags => {
+        tags.forEach(tag => {
+            // Replace each text/include tag with an invisible div to include it into the DOM
+            let el = document.createElement('div');
+            el.style.display = 'none';
+            el.innerHTML = tag.text;
+            tag.tag.parentNode.replaceChild(el, tag.tag);
 
-            return this.items;
-        },
-    },
-    methods: {
-        focus() {
-            this.isCustom = false;
-            this.open = true;
-        },
-        input(event) {
-            this.isCustom = true;
-            this.$emit('input', event.target.value);
-        },
-        setItem(item) {
-            this.isCustom = false;
-            this.$emit('input', item);
-            this.value = item;
-        }
-    },
-});
-
-const ComponentChart = Vue.extend({
-    template: '#tmpl_chart',
-    props: ['chartData'],
-    data: function() {
-        return {
-            showFilter: false,
-            knownTags: {},
-        };
-    },
-    computed: {
-        tags() {
-            return this.knownTags;
-        },
-        orderedTags() {
-            return Object.keys(this.knownTags).sort();
-        },
-    },
-    mounted() {
-        let ctx = this.$refs.canvas.getContext('2d');
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: this.chartData.data,
-            options: {
-                responsive: true,
-                scales: {
-                    x: {
-                        type: 'time',
-                    },
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: (value, index, values) => {
-                                let val = value.toLocaleString();
-                                if (this.chartData.metricType === 'ms') {
-                                    return this.chartData.metric === 'count' ?
-                                        val :
-                                        val + 'ms';
-                                }
-
-                                return val;
-                            }
-                        }
-                    }
-                },
-                elements: {
-                    point: {
-                        radius: 0,
-                        // hitRadius: 1,
-                    },
-                },
-                plugins: {
-                    legend: {
-                        display: false,
-                        position: 'top',
-                        align: 'start',
-                        labels: {
-                            usePointStyle: true,
-                        },
-                    },
-                },
-                animation: {
-                    duration: 0,
-                },
-                transitions: {
-                    active: {
-                        animation: {
-                            duration: 100,
-                        }
-                    },
-                },
-            }
-        });
-
-        this.renderData();
-    },
-    beforeDestroy() {
-        if (this.chart) this.chart.destroy();
-    },
-    watch: {
-        'chartData.queryData': {
-            deep: true,
-            handler() {
-                this.chart.data = this.chartData.data;
-                this.renderData();
-            },
-        },
-        'chartData.metric'() {
-            this.renderData();
-        },
-        'chartData.tags'() {
-            // tags are {tagName: [val, val1, valNm ]}
-            // Merge the tags with our current tags. When filtering the timeline may
-            // become empty which means no tags found, and we want a record of any tags
-            // that we have seen before
-
-            let knownTags = this.knownTags;
-            for (let tagName in this.chartData.tags) {
-                knownTags[tagName] = knownTags[tagName] || [];
-                let knownTag = knownTags[tagName];
-
-                let newTagVals = this.chartData.tags[tagName];
-                newTagVals.forEach(val => {
-                    if (!knownTag.includes(val)) {
-                        knownTag.push(val);
-                    }
-                });
-            }
-
-            // Any new tags above wouldn't have triggered vues reactivity as they are new, so force
-            // an update by re-setting the whole tags object
-            this.$set(this, 'knownTags', {...knownTags})
-        },
-    },
-    methods: {
-        addFilter(tag='', value='') {
-            this.chartData.filters.push({
-                tag,
-                value,
+            // <script>'s won't get executed so replace them with executable script elements
+            el.querySelectorAll('script').forEach(scriptTag => {
+                let script  = document.createElement('script');
+                script.text = scriptTag.innerHTML;
+                el.replaceChild(script, scriptTag);
             });
-        },
-        renderData() {
-            let chartData = this.chartData;
-            let data = {
-                datasets: [{
-                    label: chartData.label,
-                    data: [],
-                    borderColor: '#f05d23ff',
-                    borderWidth: 2
-                }],
-            };
+        });
+    });
 
-            if (chartData.queryData) {
-                let points = chartData.queryData.points;
-                data.datasets[0].data = points.map(point => ({
-                    x: point.time,
-                    y: point[chartData.metric],
-                }));
-            }
+    return callIncludesPromise;
+}
 
-            this.chart.data = data;
-            this.chart.update();
-        },
-    },
-});
+// Wrapper for resolving a component after all text/includes have been executed
+function waitForComponent(name) {
+    // vuejs needs a function that returns a promise that resolves with the component
+    return () => callIncludesPromise.then(() => window[name]);
+}
 
-window.app = new Vue({
-    el: '#app',
+
+
+
+
+
+
+
+const App = Vue.extend({
     components: {
-        Chart: ComponentChart,
+        Chart: waitForComponent('ComponentChart'),
     },
     data: function() {
         return {
@@ -662,7 +446,12 @@ window.app = new Vue({
         },
     },
 });
-window.app.$mount();
+
+callIncludes().then(() => {
+    window.app = new App({el: '#app'});
+    window.app.$mount();
+});
+
 
 
 

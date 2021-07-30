@@ -1,0 +1,46 @@
+<template id="tmpl_selectinput">
+    <div class="customselect">
+        <input ref="input" type="text" :value="value" @input="input" @focus="focus()" @blur="open=false" />
+        <div v-if="open" class="customselect-dropdown">
+            <div v-for="i in filteredItems" @mousedown="setItem(i)" class="customselect-item">{{i}}</div>
+        </div>
+    </div>
+</template>
+
+<script>
+Vue.component('select-input', {
+    template: '#tmpl_selectinput',
+    props: ['value', 'items'],
+    data: function() {
+        return {
+            open: false,
+            isCustom: true,
+        };
+    },
+    computed: {
+        filteredItems() {
+            // custom = typing a custom entry. !custom = slected item from the list
+            if (this.isCustom) {
+                return this.items.filter(i => i.toLowerCase().includes(this.value.toLowerCase()));
+            }
+
+            return this.items;
+        },
+    },
+    methods: {
+        focus() {
+            this.isCustom = false;
+            this.open = true;
+        },
+        input(event) {
+            this.isCustom = true;
+            this.$emit('input', event.target.value);
+        },
+        setItem(item) {
+            this.isCustom = false;
+            this.$emit('input', item);
+            this.value = item;
+        }
+    },
+});
+</script>

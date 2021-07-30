@@ -1,0 +1,220 @@
+<template id="tmpl_chart">
+    <div class="chart">
+        <div class="chart-topbar">
+            <svg-loader :style="{visibility: chartData.loading ? 'visible' : 'hidden'}" style="height: 16px;"></svg-loader>
+            <span class="chart-title" :title="chartData.label">{{chartData.label}}</span>
+
+            <div>
+                <button @click="showFilter=!showFilter">{{showFilter?'Chart':'Filters'}}</button>
+                <select v-model="chartData.metric">
+                    <option value="count">Count</option>
+                    <option value="sum">Sum</option>
+                    <option value="max">Max</option>
+                    <option value="min">Min</option>
+                    <option value="avg">Avg</option>
+                </select>
+                <a @click="$emit('remove')" class="pointer" style="padding: 0 5px;">x</a>
+            </div>
+        </div>
+
+        <div class="chart-main">
+            <div :style="{display: showFilter ? 'block' : 'none'}" style="padding:20px 10px;">
+                <div v-if="orderedTags.length > 0" class="chart-filter-taglist">
+                    Filter on an existing tag:
+                    <template v-for="(tag, idx) in orderedTags">
+                        <a @click="addFilter(tag, '')">{{tag}}</a>{{idx < orderedTags.length-1 ? ', ' : ' '}}
+                    </template>
+                </div>
+                <div v-else>
+                    No tags were found for this metric.
+                </div>
+
+                <table style="margin-top:10px;">
+                    <tr v-for="(filter, idx) in chartData.filters">
+                        <td><select-input v-model="filter.tag" :items="Object.keys(tags || {})"></select-input></td>
+                        <td><select-input v-model="filter.value" :items="tags[filter.tag] || []"></select-input></td>
+                        <td><a @click="chartData.filters.splice(idx, 1)" class="pointer" style="padding:0 5px;">x</a></td>
+                    </tr>
+                    <tr>
+                        <td colspan=3>
+                            <button @click="addFilter()">Add filter</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            <canvas :style="{display: showFilter ? 'none' : 'block'}" ref="canvas" width="400" height="250"></canvas>
+        </div>
+    </div>
+</template>
+
+<script>
+window.ComponentChart = {
+    template: '#tmpl_chart',
+    props: ['chartData'],
+    data: function() {
+        return {
+            showFilter: false,
+            knownTags: {},
+        };
+    },
+    computed: {
+        tags() {
+            return this.knownTags;
+        },
+        orderedTags() {
+            return Object.keys(this.knownTags).sort();
+        },
+    },
+    mounted() {
+        let ctx = this.$refs.canvas.getContext('2d');
+        this.chart = new Chart(ctx, {
+            type: 'line',
+            data: this.chartData.data,
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        type: 'time',
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: (value, index, values) => {
+                                let val = value.toLocaleString();
+                                if (this.chartData.metricType === 'ms') {
+                                    return this.chartData.metric === 'count' ?
+                                        val :
+                                        val + 'ms';
+                                }
+
+                                return val;
+                            }
+                        }
+                    }
+                },
+                elements: {
+                    point: {
+                        radius: 0,
+                        // hitRadius: 1,
+                    },
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                        position: 'top',
+                        align: 'start',
+                        labels: {
+                            usePointStyle: true,
+                        },
+                    },
+                    crosshair: {
+                        line: {
+                            color: '#F66',  // crosshair line color
+                            width: 1        // crosshair line width
+                        },
+                        sync: {
+                            enabled: true,            // enable trace line syncing with other charts
+                            group: 1,                 // chart group
+                            suppressTooltips: false   // suppress tooltips when showing a synced tracer
+                        },
+                        zoom: {
+                            enabled: true,                                      // enable zooming
+                            zoomboxBackgroundColor: 'rgba(66,133,244,0.2)',     // background color of zoom box 
+                            zoomboxBorderColor: '#48F',                         // border color of zoom box
+                            zoomButtonText: 'Reset zoom',                       // reset zoom button text
+                            zoomButtonClass: 'chart-reset-zoom',                      // reset zoom button class
+                        },
+                        callbacks: {
+                            beforeZoom: () => function(start, end) {                  // called before zoom, return false to prevent zoom
+                                return true;
+                            },
+                            afterZoom: () => function(start, end) {                   // called after zoom
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 0,
+                },
+                transitions: {
+                    active: {
+                        animation: {
+                            duration: 100,
+                        }
+                    },
+                },
+            }
+        });
+
+        this.renderData();
+    },
+    beforeDestroy() {
+        if (this.chart) this.chart.destroy();
+    },
+    watch: {
+        'chartData.queryData': {
+            deep: true,
+            handler() {
+                this.chart.data = this.chartData.data;
+                this.renderData();
+            },
+        },
+        'chartData.metric'() {
+            this.renderData();
+        },
+        'chartData.tags'() {
+            // tags are {tagName: [val, val1, valNm ]}
+            // Merge the tags with our current tags. When filtering the timeline may
+            // become empty which means no tags found, and we want a record of any tags
+            // that we have seen before
+
+            let knownTags = this.knownTags;
+            for (let tagName in this.chartData.tags) {
+                knownTags[tagName] = knownTags[tagName] || [];
+                let knownTag = knownTags[tagName];
+
+                let newTagVals = this.chartData.tags[tagName];
+                newTagVals.forEach(val => {
+                    if (!knownTag.includes(val)) {
+                        knownTag.push(val);
+                    }
+                });
+            }
+
+            // Any new tags above wouldn't have triggered vues reactivity as they are new, so force
+            // an update by re-setting the whole tags object
+            this.$set(this, 'knownTags', {...knownTags})
+        },
+    },
+    methods: {
+        addFilter(tag='', value='') {
+            this.chartData.filters.push({
+                tag,
+                value,
+            });
+        },
+        renderData() {
+            let chartData = this.chartData;
+            let data = {
+                datasets: [{
+                    label: chartData.label,
+                    data: [],
+                    borderColor: '#f05d23ff',
+                    borderWidth: 2
+                }],
+            };
+
+            if (chartData.queryData) {
+                let points = chartData.queryData.points;
+                data.datasets[0].data = points.map(point => ({
+                    x: point.time,
+                    y: point[chartData.metric],
+                }));
+            }
+
+            this.chart.data = data;
+            this.chart.update();
+        },
+    },
+};
+</script>
