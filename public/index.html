@@ -326,9 +326,36 @@ function waitForComponent(name) {
 }
 
 
+// Store some app settings into localStorage, and read them back when starting the app
+function settingsSync(app) {
+    function importSettings() {
+        try {
+            let raw = window.localStorage.getItem('mm_settings');
+            let settings = JSON.parse(raw);
+            if (settings) {
+                app.darkMode = settings.darkMode;
+            }
+        } catch (err) {
+            console.error('Error reading settings:', err);
+        }
+    }
+    
+    function save() {
+        try {
+            let settings = JSON.stringify({
+                darkMode: app.darkMode,
+            });
+            window.localStorage.setItem('mm_settings', settings);
+        } catch (err) {
+            console.error('Error saving settings:', err);
+        }
+    }
 
+    importSettings();
+    app.$watch('darkMode', save);
 
-
+    return { save, import: importSettings };
+};
 
 
 
@@ -359,6 +386,7 @@ const App = Vue.extend({
         },
     },
     created() {
+        settingsSync(this);
         this.addChart({label: 'minimetrics_query', type: 'ms'}).then(chart => chart.metric = 'count');
         this.refreshLabels();
         this.autoRefreshLoop();
