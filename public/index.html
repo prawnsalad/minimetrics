@@ -9,16 +9,9 @@
     <script src="vue.min.js"></script>
     <script src="chart.min.js"></script>
     <script src="chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="chartjs-plugin-crosshair.min.js"></script>
 
     <style>
-        :root {
-            --june-bud: #c5d86dff;
-            --black-chocolate: #261c15ff;
-            --baby-powder: #f7f7f2ff;
-            --pale-spring-bud: #e4e6c3ff;
-            --flame: #f05d23ff;
-        }
-
         .pointer {
             cursor: pointer;
         }
@@ -32,17 +25,31 @@
             height: 100vh;
             font-family: Verdana, Geneva, Tahoma, sans-serif;
             font-size: 14px;
-            color: var(--black-chocolate);
-            background: var(--baby-powder);
         }
 
         #app {
+            --c-primary: #f05d23ff;
+            --c-accent: #c5d86dff;
+            --c-border: #ffffffff;
+            --c-bg: #f7f7f2ff;
+            --c-text: #261c15ff;
+            --c-chartbg: #ffffffff;
+
             height: 100vh;
             display: flex;
+            color: var(--c-text);
+            background: var(--c-bg);
         }
+        #app.body--dark {
+            --c-border: #2f2f2fff;
+            --c-bg: #191919ff;
+            --c-text: #e6e2deff;
+            --c-chartbg: #272626ff;
+        }
+
         aside {
             width: 250px;
-            border-right: 2px solid #fff;
+            border-right: 2px solid var(--c-border);
             position: relative;
             display: flex;
             flex-direction: column;
@@ -53,7 +60,7 @@
             flex-direction: column;
         }
         main .toolbar {
-            border-bottom: 2px solid #fff;
+            border-bottom: 2px solid var(--c-border);
             padding: 1em;
         }
         main .workspace {
@@ -65,7 +72,7 @@
             padding: 20px;
             text-align: center;
             font-weight: normal;
-            background: var(--flame);
+            background: var(--c-primary);
             color: var(--baby-powder);
         }
 
@@ -104,6 +111,16 @@
         .autorefresh-options {
             display: inline-block;
             margin-left: 3em;
+            user-select: none;
+        }
+
+        .darkmode-switch {
+            float: right;
+            user-select: none;
+            opacity: 0.5;
+        }
+        .darkmode-switch:hover {
+            opacity: 1;
         }
 
         .chart {
@@ -111,8 +128,14 @@
             position: relative;
             margin: 0 10px 10px 0;
             border: 1px solid rgb(38 28 21 / 12%);
-            background: #fff;
+            background: var(--c-chartbg);
             overflow: hidden;
+        }
+
+        .chart-reset-zoom {
+            position: absolute;
+            top: 50px;
+            left: 57px;
         }
 
         .chart-main {
@@ -140,7 +163,7 @@
 
         .chart-filter-taglist a {
             cursor: pointer;
-            color: var(--flame);
+            color: var(--c-primary);
         }
 
         .labels-list {
@@ -156,7 +179,7 @@
             white-space: nowrap;
         }
         .labels-label:hover {
-            color: var(--flame);
+            color: var(--c-primary);
         }
 
         .customselect {
@@ -180,7 +203,7 @@
     </style>
 </head>
 <body>
-    <div id="app">
+    <div id="app" :class="{'body--dark': darkMode}">
         <aside v-if="showSidebar">
             <div class="sidebar-resizer" @mousedown="sidebarResizing=true"><span>.....</span></div>
             <div style="padding:0 1em;">
@@ -242,6 +265,13 @@
                         <input type="checkbox" v-model="autoRefresh" />
                     </label>
                     <button @click="updateCharts()">Refresh</button>
+                </div>
+
+                <div class="darkmode-switch">
+                    <label>
+                        Dark mode
+                        <input type="checkbox" v-model="darkMode" />
+                    </label>
                 </div>
             </div>
 
@@ -308,6 +338,7 @@ const App = Vue.extend({
     },
     data: function() {
         return {
+            darkMode: false,
             showSidebar: true,
             sidebarResizing: false,
             resolution: '1m',

@@ -118,7 +118,7 @@ window.ComponentChart = {
                             suppressTooltips: false   // suppress tooltips when showing a synced tracer
                         },
                         zoom: {
-                            enabled: true,                                      // enable zooming
+                            enabled: false,                                      // enable zooming
                             zoomboxBackgroundColor: 'rgba(66,133,244,0.2)',     // background color of zoom box 
                             zoomboxBorderColor: '#48F',                         // border color of zoom box
                             zoomButtonText: 'Reset zoom',                       // reset zoom button text
@@ -194,12 +194,16 @@ window.ComponentChart = {
             });
         },
         renderData() {
+            // We need the primary colour CSS var value as chartjs doesn't support CSS vars
+            let styles = getComputedStyle(document.querySelector('#app'));
+            let primaryColor = styles.getPropertyValue('--c-primary');
+
             let chartData = this.chartData;
             let data = {
                 datasets: [{
                     label: chartData.label,
                     data: [],
-                    borderColor: '#f05d23ff',
+                    borderColor: primaryColor,
                     borderWidth: 2
                 }],
             };
